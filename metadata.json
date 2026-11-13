@@ -1,6 +1,5 @@
 {
-  "name": "HYPERBOLIC ART 2",
-  "description": "HYPERBOLIC ART 2",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "name": "Acid Loom",
+  "description": "A hyperbolic shader studio: 21 generative engines, 53 palettes, stackable warps and print finishes.",
+  "requestFramePermissions": []
 }
