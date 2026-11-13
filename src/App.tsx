@@ -137,6 +137,7 @@ export default function App() {
     rendererRef.current = r;
 
     const resize = () => {
+      if (busyRef.current) return;
       const dpr = Math.min(window.devicePixelRatio || 1, 2) * qualityRef.current;
       r.setSize(canvas.clientWidth * dpr, canvas.clientHeight * dpr);
       setResLabel(`${canvas.width}×${canvas.height}`);
@@ -295,6 +296,8 @@ export default function App() {
       busyRef.current = false;
       setBusy(false);
       cancelExportRef.current = false;
+      const liveCanvas = canvasRef.current as unknown as { __resize?: () => void } | null;
+      liveCanvas?.__resize?.();
     }
   };
   const cancelExport = () => { cancelExportRef.current = true; say('Stopping after this frame…'); };
@@ -432,7 +435,7 @@ export default function App() {
               </button>
             )}
             {FAMILIES.map((fam) => (
-              <details key={fam} className="family" open={ENGINES.some((e) => e.family === fam && e.id === current)}>
+              <details key={fam} className="family">
                 <summary>{fam}</summary>
                 <div className="engine-grid">
                   {ENGINES.filter((e) => e.family === fam).map((e) => (
@@ -584,7 +587,16 @@ export default function App() {
               </select>
             </label>
             <label className="select" htmlFor="export-format"><span>Format</span>
-              <select id="export-format" value={exportFormat} onChange={(e) => setExportFormat(e.target.value as 'png' | 'gif' | 'mp4')}>
+              <select id="export-format" value={exportFormat} onChange={(e) => {
+                const format = e.target.value as 'png' | 'gif' | 'mp4';
+                setExportFormat(format);
+                if (format === 'gif') {
+                  setExportSeconds((n) => Math.min(n, 10));
+                  setExportFps((n) => [8, 12, 15].includes(n) ? n : 12);
+                } else if (format === 'mp4') {
+                  setExportFps((n) => [12, 24, 30, 60].includes(n) ? n : 30);
+                }
+              }}>
                 <option value="png">PNG · still</option>
                 <option value="gif">GIF · animated</option>
                 <option value="mp4">MP4 · H.264 video</option>
