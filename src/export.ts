@@ -68,8 +68,10 @@ export async function renderAnimation(
         if (i % 2 === 0) await nextPaint();
       }
       gif.finish();
-      const bytes = Uint8Array.from(gif.bytes());
-      return { blob: new Blob([bytes], { type: 'image/gif' }), extension: 'gif', width, height };
+      const bytes = gif.bytes();
+      const buffer = new ArrayBuffer(bytes.byteLength);
+      new Uint8Array(buffer).set(bytes);
+      return { blob: new Blob([buffer], { type: 'image/gif' }), extension: 'gif', width, height };
     }
 
     const { Output, Mp4OutputFormat, BufferTarget, CanvasSource, Quality } = await import('mediabunny');
