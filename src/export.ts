@@ -63,7 +63,10 @@ export async function renderAnimation(
         const frame = ctx.getImageData(0, 0, width, height);
         const palette = quantize(frame.data, 256);
         const pixels = applyPalette(frame.data, palette);
-        gif.writeFrame(pixels, width, height, { palette, delay: Math.round(1000 / opts.fps) });
+        // GIF delays are centisecond-granular: distribute rounding instead of drifting.
+        const endCs = Math.round(((i + 1) * 100) / opts.fps);
+        const startCs = Math.round((i * 100) / opts.fps);
+        gif.writeFrame(pixels, width, height, { palette, delay: (endCs - startCs) * 10 });
         progress((i + 1) / total);
         if (i % 2 === 0) await nextPaint();
       }
