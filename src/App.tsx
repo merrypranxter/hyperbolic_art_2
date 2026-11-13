@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ENGINES, ENGINE_BY_ID, FAMILIES } from './gl/engines';
 import { Renderer } from './gl/renderer';
+import { renderAnimation } from './export';
 import { buildSceneFS } from './gl/shaders';
 import { PALETTES, randomPalette } from './palettes';
 import { applyPreset, PRESETS } from './presets';
@@ -11,17 +12,22 @@ import {
 
 const EXPORT_SIZES: Array<[string, number, number]> = [
   ['Screen size', 0, 0],
-  ['1920 × 1080', 1920, 1080],
-  ['3840 × 2160 (4K)', 3840, 2160],
-  ['2160 × 3840 (portrait)', 2160, 3840],
-  ['3000 × 3000 (square)', 3000, 3000],
-  ['4096 × 4096 (square)', 4096, 4096],
+  ['1080 × 1080 · square', 1080, 1080],
+  ['2048 × 2048 · square', 2048, 2048],
+  ['3000 × 3000 · square', 3000, 3000],
+  ['4096 × 4096 · square', 4096, 4096],
+  ['1080 × 1920 · portrait', 1080, 1920],
+  ['2160 × 3840 · portrait 4K', 2160, 3840],
+  ['1920 × 1080 · landscape', 1920, 1080],
+  ['3840 × 2160 · landscape 4K', 3840, 2160],
+  ['1200 × 1600 · 3:4', 1200, 1600],
+  ['1600 × 1200 · 4:3', 1600, 1200],
 ];
 const START = 5; // open on the Poincaré Girih look
 const SAVE_KEY = 'acid-loom-looks-v1';
 
 interface Saved { name: string; recipe: unknown; }
-interface Media { kind: 'png' | 'webm'; url: string; name: string; }
+interface Media { kind: 'png' | 'gif' | 'mp4' | 'webm'; url: string; name: string; }
 
 function loadSaved(): Saved[] {
   try {
@@ -51,7 +57,10 @@ function Fx({ k, s, set, params = [] }: { k: ToggleKey; s: State; set: (p: Parti
       <button id={'t-' + k} type="button" className="chip" aria-pressed={on} onClick={() => set({ [k]: !on } as Partial<State>)}>
         <i aria-hidden="true" />{TOGGLES[k].label}
       </button>
-      {on && params.map((p) => <Slider key={p} k={p} s={s} set={set} />)}
+      {on && params.length > 0 && <details className="fx-detail">
+        <summary>Adjust {TOGGLES[k].label}</summary>
+        {params.map((p) => <Slider key={p} k={p} s={s} set={set} />)}
+      </details>}
     </div>
   );
 }
@@ -72,6 +81,14 @@ export default function App() {
   const [slot, setSlot] = useState<'A' | 'B'>('A');
   const [paused, setPaused] = useState(false);
   const [hud, setHud] = useState(true);
+  const [activeTab, setActiveTab] = useState<'create' | 'shape' | 'color' | 'effects' | 'export'>('create');
+  const [palGroup, setPalGroup] = useState('All');
+  const [paletteQuery, setPaletteQuery] = useState('');
+  const [exportFormat, setExportFormat] = useState<'png' | 'gif' | 'mp4'>('png');
+  const [exportSeconds, setExportSeconds] = useState(5);
+  const [exportFps, setExportFps] = useState(24);
+  const [exportBitrate, setExportBitrate] = useState(40);
+  const [exportProgress, setExportProgress] = useState(0);
   const [quality, setQuality] = useState(1);
   const [lockGeo, setLockGeo] = useState(false);
   const [lockPal, setLockPal] = useState(false);
@@ -93,6 +110,7 @@ export default function App() {
   const pausedRef = useRef(paused); pausedRef.current = paused;
   const qualityRef = useRef(quality); qualityRef.current = quality;
   const busyRef = useRef(false);
+  const cancelExportRef = useRef(false);
   const mouse = useRef({ x: 0, y: 0, tx: 0.18, ty: -0.12 });
   const clock = useRef({ t: 0, wall: 0 });
   const recRef = useRef<MediaRecorder | null>(null);
@@ -119,6 +137,7 @@ export default function App() {
     rendererRef.current = r;
 
     const resize = () => {
+      if (busyRef.current) return;
       const dpr = Math.min(window.devicePixelRatio || 1, 2) * qualityRef.current;
       r.setSize(canvas.clientWidth * dpr, canvas.clientHeight * dpr);
       setResLabel(`${canvas.width}×${canvas.height}`);
@@ -252,6 +271,36 @@ export default function App() {
     } catch (e) { say((e as Error).message); }
     busyRef.current = false; setBusy(false);
   };
+  const exportArtwork = async () => {
+    if (exportFormat === 'png') { await snapshot(); return; }
+    const r = rendererRef.current;
+    if (!r || busyRef.current) return;
+    const [, requestedWidth, requestedHeight] = EXPORT_SIZES[exportSize];
+    const width = requestedWidth || r.canvas.width, height = requestedHeight || r.canvas.height;
+    const state = { ...s, colors: [...s.colors] };
+    const fpsChoice = exportFormat === 'gif' ? Math.min(exportFps, 15) : exportFps;
+    const secsChoice = exportFormat === 'gif' ? Math.min(exportSeconds, 10) : exportSeconds;
+    busyRef.current = true; setBusy(true); setExportProgress(0); cancelExportRef.current = false;
+    try {
+      const result = await renderAnimation(
+        r, state, clock.current.t, clock.current.wall, [mouse.current.x, mouse.current.y],
+        { format: exportFormat, width, height, fps: fpsChoice, seconds: secsChoice, bitrate: exportBitrate * 1_000_000 },
+        (n) => setExportProgress(Math.round(n * 100)), () => cancelExportRef.current,
+      );
+      showMedia({ kind: result.extension, url: URL.createObjectURL(result.blob),
+        name: 'acid-loom-' + state.engineA + '-' + result.width + 'x' + result.height + '-' + Date.now() + '.' + result.extension });
+    } catch (e) {
+      const message = (e as Error).message || 'Export failed';
+      say(message);
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+      cancelExportRef.current = false;
+      const liveCanvas = canvasRef.current as unknown as { __resize?: () => void } | null;
+      liveCanvas?.__resize?.();
+    }
+  };
+  const cancelExport = () => { cancelExportRef.current = true; say('Stopping after this frame…'); };
   const toggleRec = () => {
     if (recRef.current) { recRef.current.stop(); return; }
     const c = canvasRef.current!;
@@ -344,22 +393,24 @@ export default function App() {
           </div>
         </div>
         <nav className="actions" aria-label="Quick actions">
-          <button type="button" className="btn hot" onClick={doChaos} title="Random engines, geometry, palette and effects (C)">CHAOS</button>
-          <button type="button" className="btn" onClick={doMutate} title="Nudge the current look (M)">MUTATE</button>
-          <button type="button" className="btn" onClick={doPal} title="Generate a new palette (P)">PALETTE</button>
-          <button type="button" className="btn" onClick={doFx} title="Roll warps and finishes (F)">FX ROLL</button>
-          <button type="button" className="btn" onClick={() => setPaused((p) => !p)} title="Space">{paused ? 'PLAY' : 'PAUSE'}</button>
-          <button type="button" className="btn" onClick={() => void snapshot()} disabled={busy} title="Render a PNG (S)">{busy ? 'RENDERING' : 'PNG'}</button>
-          <button type="button" className={'btn' + (recording ? ' rec' : '')} onClick={toggleRec} title="Record the canvas to video">{recording ? 'STOP' : 'REC'}</button>
-          <button type="button" className="btn" onClick={() => { setRecipeText(JSON.stringify(recipe(), null, 1)); setDialog('recipe'); }}>RECIPE</button>
-          <button type="button" className="btn" onClick={fullscreen}>FULL</button>
-          <button type="button" className="btn cy" onClick={() => setHud((v) => !v)} title="H">{hud ? 'HIDE' : 'SHOW'}</button>
+          <button type="button" className="btn hot" onClick={doChaos} title="Replace the whole look with a new chaos roll (C)">CHAOS</button>
+          <button type="button" className="btn" onClick={doMutate} title="Nudge existing parameters (M)">MUTATE</button>
+          <button type="button" className="btn" onClick={() => setPaused((p) => !p)} title="Pause / play (Space)">{paused ? 'PLAY' : 'PAUSE'}</button>
+          <button type="button" className="btn" onClick={() => { setActiveTab('export'); setHud(true); }} title="Open export settings">EXPORT</button>
+          <button type="button" className="btn cy" onClick={() => setHud((v) => !v)} title="Hide or show controls (H)" aria-expanded={hud}>{hud ? 'HIDE ✕' : 'CONTROLS ☰'}</button>
         </nav>
       </header>
 
       <aside className="panel side" aria-label="Controls" hidden={!hud}>
+        <nav className="workspace-tabs" role="tablist" aria-label="Studio controls">
+          {([['create','CREATE'], ['shape','SHAPE'], ['color','COLOUR'], ['effects','EFFECTS'], ['export','EXPORT']] as const).map(([id, name]) => (
+            <button key={id} type="button" role="tab" aria-selected={activeTab === id} className={activeTab === id ? 'active' : ''}
+              onClick={() => setActiveTab(id)}>{name}</button>
+          ))}
+        </nav>
         <div className="side-scroll">
-          <Section id="presets" title="Presets" hint={`${PRESETS.length} looks`} open>
+          {activeTab === 'create' && (<>
+          <Section id="presets" title="Presets" hint={`${PRESETS.length} looks`}>
             <div className="locks">
               <label><input id="lock-geo" type="checkbox" checked={lockGeo} onChange={(e) => setLockGeo(e.target.checked)} /> Lock engines + geometry</label>
               <label><input id="lock-pal" type="checkbox" checked={lockPal} onChange={(e) => setLockPal(e.target.checked)} /> Lock colour</label>
@@ -384,8 +435,8 @@ export default function App() {
               </button>
             )}
             {FAMILIES.map((fam) => (
-              <div key={fam} className="family">
-                <h3>{fam}</h3>
+              <details key={fam} className="family">
+                <summary>{fam}</summary>
                 <div className="engine-grid">
                   {ENGINES.filter((e) => e.family === fam).map((e) => (
                     <button type="button" key={e.id} className={'engine' + (current === e.id ? ' active' : '')} onClick={() => pickEngine(e.id)}>
@@ -393,7 +444,7 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-              </div>
+              </details>
             ))}
             {B && (
               <div className="mixer">
@@ -408,6 +459,8 @@ export default function App() {
             <p className="note">⚠ marks the raymarched engine. It is heavy; drop Quality if it stutters.</p>
           </Section>
 
+          </>)}
+          {activeTab === 'shape' && (<>
           <Section id="geometry" title="Geometry" hint="labels follow slot A" open>
             {knob('sym')}{knob('q')}{knob('depth')}{knob('freq')}{knob('tension')}{knob('shape')}
             {(s.engineA === 'biomineral' || s.engineB === 'biomineral') && <Slider k="grit" s={s} set={set} />}
@@ -435,9 +488,19 @@ export default function App() {
             <Fx k="vhsOn" s={s} set={set} params={['vhs']} />
           </Section>
 
+          </>)}
+          {activeTab === 'color' && (<>
           <Section id="color" title="Colour" hint={`${PALETTES.length} palettes`} open>
+            <div className="pal-tools">
+              <label className="select" htmlFor="palette-family"><span>Collection</span>
+                <select id="palette-family" value={palGroup} onChange={(e) => setPalGroup(e.target.value)}>
+                  {['All', ...new Set(PALETTES.map((p) => p.group))].map((g) => <option key={g} value={g}>{g}</option>)}
+                </select>
+              </label>
+              <input type="search" aria-label="Find palette" placeholder="Find a palette…" value={paletteQuery} onChange={(e) => setPaletteQuery(e.target.value)} />
+            </div>
             <div className="pal-grid">
-              {PALETTES.map((p) => (
+              {PALETTES.filter((p) => (palGroup === 'All' || p.group === palGroup) && p.name.toLowerCase().includes(paletteQuery.toLowerCase())).map((p) => (
                 <button type="button" key={p.name} className={'pal' + (s.palette === p.name ? ' active' : '')} title={p.name}
                   onClick={() => set({ palette: p.name, bg: p.bg, colors: [...p.colors] })}>
                   <i style={{ background: `linear-gradient(90deg, ${p.bg} 0 12%, ${p.colors.map((c, i) => `${c} ${12 + (88 * i) / p.colors.length}% ${12 + (88 * (i + 1)) / p.colors.length}%`).join(', ')})` }} />
@@ -458,6 +521,7 @@ export default function App() {
               <button type="button" className="mini" onClick={() => set({ colors: [...s.colors].reverse(), palette: 'custom' })}>Flip stops</button>
               <button type="button" className="mini" onClick={() => set({ colors: [...s.colors].sort(() => Math.random() - 0.5), palette: 'custom' })}>Shuffle</button>
             </div>
+            <details className="mini-sec"><summary>Colour motion & colour treatments</summary>
             <Slider k="colorFreq" s={s} set={set} />
             <Slider k="palOffset" s={s} set={set} />
             <Slider k="palCycle" s={s} set={set} />
@@ -468,9 +532,16 @@ export default function App() {
             <Fx k="rainbowOn" s={s} set={set} params={['rainbow']} />
             <Fx k="hardOn" s={s} set={set} />
             <Fx k="reverseOn" s={s} set={set} />
+            </details>
           </Section>
 
-          <Section id="surface" title="Surface + ink" hint="relief, light, line work">
+          </>)}
+          {activeTab === 'effects' && (<>
+          <div className="row-btns effect-actions">
+            <button type="button" className="mini" onClick={doFx} title="Randomize effects only">FX ROLL</button>
+            <button type="button" className="mini" onClick={() => setActiveTab('shape')}>SPACE WARPS</button>
+          </div>
+          <Section id="surface" title="Surface + ink" hint="relief, light, line work" open>
             <Slider k="relief" s={s} set={set} />
             <Slider k="gloss" s={s} set={set} />
             <Fx k="inkOn" s={s} set={set} params={['ink', 'inkDepth']} />
@@ -499,7 +570,9 @@ export default function App() {
             <Fx k="invertOn" s={s} set={set} />
           </Section>
 
-          <Section id="output" title="Output" hint="stills, saved looks">
+          </>)}
+          {activeTab === 'export' && (<>
+          <Section id="output" title="Export studio" hint="stills · GIF · MP4 · recipes" open>
             <label className="select" htmlFor="quality"><span>Live quality</span>
               <select id="quality" value={quality} onChange={(e) => setQuality(+e.target.value)}>
                 <option value={0.5}>Draft (½ res)</option>
@@ -508,13 +581,58 @@ export default function App() {
                 <option value={1.5}>Supersampled (1.5×)</option>
               </select>
             </label>
-            <label className="select" htmlFor="export-size"><span>PNG size</span>
+            <label className="select" htmlFor="export-size"><span>Output dimensions</span>
               <select id="export-size" value={exportSize} onChange={(e) => setExportSize(+e.target.value)}>
                 {EXPORT_SIZES.map(([n], i) => <option key={n} value={i}>{n}</option>)}
               </select>
             </label>
+            <label className="select" htmlFor="export-format"><span>Format</span>
+              <select id="export-format" value={exportFormat} onChange={(e) => {
+                const format = e.target.value as 'png' | 'gif' | 'mp4';
+                setExportFormat(format);
+                if (format === 'gif') {
+                  setExportSeconds((n) => Math.min(n, 10));
+                  setExportFps((n) => [8, 12, 15].includes(n) ? n : 12);
+                } else if (format === 'mp4') {
+                  setExportFps((n) => [12, 24, 30, 60].includes(n) ? n : 30);
+                }
+              }}>
+                <option value="png">PNG · still</option>
+                <option value="gif">GIF · animated</option>
+                <option value="mp4">MP4 · H.264 video</option>
+              </select>
+            </label>
+            {exportFormat !== 'png' && (<>
+              <label className="select" htmlFor="export-duration"><span>Duration</span>
+                <select id="export-duration" value={exportSeconds} onChange={(e) => setExportSeconds(+e.target.value)}>
+                  {[2, 3, 5, 10, ...(exportFormat === 'mp4' ? [15, 30] : [])].map((n) => <option key={n} value={n}>{n} seconds</option>)}
+                </select>
+              </label>
+              <label className="select" htmlFor="export-fps"><span>Frames per second</span>
+                <select id="export-fps" value={exportFps} onChange={(e) => setExportFps(+e.target.value)}>
+                  {(exportFormat === 'gif' ? [8, 12, 15] : [12, 24, 30, 60]).map((n) => <option key={n} value={n}>{n} fps</option>)}
+                </select>
+              </label>
+              {exportFormat === 'mp4' && <label className="select" htmlFor="export-bitrate"><span>Video bitrate</span>
+                <select id="export-bitrate" value={exportBitrate} onChange={(e) => setExportBitrate(+e.target.value)}>
+                  {[12, 24, 40, 60].map((n) => <option key={n} value={n}>{n} Mbps</option>)}
+                </select>
+              </label>}
+              <p className="note">{exportFormat === 'gif'
+                ? 'GIF is frame-accurate but limited to 256 colours per frame. Large GIFs may take a lot of memory on iPhone.'
+                : 'MP4 uses H.264 hardware/software encoding when available. Export size and bitrate are independent of preview quality.'}</p>
+            </>)}
+            <div className="row-btns">
+              <button type="button" className="btn hot" onClick={() => void exportArtwork()} disabled={busy}>{busy ? 'RENDERING ' + exportProgress + '%' : 'EXPORT ' + exportFormat.toUpperCase()}</button>
+              {busy && <button type="button" className="mini" onClick={cancelExport}>CANCEL</button>}
+            </div>
+            {busy && <progress aria-label="Export progress" className="export-progress" max={100} value={exportProgress} />}
+            <details className="mini-sec"><summary>Saved looks · recipe · advanced tools</summary>
             <div className="row-btns">
               <button type="button" className="mini" onClick={() => void snapshot()} disabled={busy}>Render PNG</button>
+              <button type="button" className="mini" onClick={() => { setRecipeText(JSON.stringify(recipe(), null, 1)); setDialog('recipe'); }}>RECIPE</button>
+              <button type="button" className="mini" onClick={() => void fullscreen()}>FULL SCREEN</button>
+              <button type="button" className={'mini' + (recording ? ' rec' : '')} onClick={toggleRec}>{recording ? 'STOP LIVE REC' : 'LIVE REC'}</button>
               <button type="button" className="mini" onClick={saveLook}>Save this look</button>
               <button type="button" className="mini" onClick={() => setDialog('glsl')}>View GLSL</button>
             </div>
@@ -525,7 +643,9 @@ export default function App() {
                 <button type="button" className="mini" aria-label={'Delete saved look ' + v.name} onClick={() => persist(saved.filter((_, j) => j !== i))}>×</button>
               </div>
             ))}
+            </details>
           </Section>
+          </>)}
         </div>
         <footer className="side-foot">Drag the art to move the warp pole · scroll or pinch to zoom · double-click to centre</footer>
       </aside>
@@ -551,9 +671,9 @@ export default function App() {
               <div className="row-btns"><button type="button" className="btn" onClick={() => void copy(buildSceneFS({ a: s.engineA, b: s.engineB, blend: s.blendMode, fd: s.fdOn }), 'GLSL')}>COPY GLSL</button></div>
             </>)}
             {dialog === 'media' && media && (<>
-              <div className="modal-head"><h2>{media.kind === 'png' ? 'PNG render' : 'Recording'}</h2><button type="button" className="btn" onClick={() => setDialog('none')}>CLOSE</button></div>
-              {media.kind === 'png' ? <img src={media.url} alt="Rendered artwork" /> : <video src={media.url} controls loop autoPlay muted />}
-              <p className="note">Right-click or long-press the {media.kind === 'png' ? 'image' : 'video'} and choose Save. The button below also works when this page runs outside an embedded viewer.</p>
+              <div className="modal-head"><h2>{media.kind === 'png' ? 'PNG render' : media.kind.toUpperCase() + ' render'}</h2><button type="button" className="btn" onClick={() => setDialog('none')}>CLOSE</button></div>
+              {(media.kind === 'png' || media.kind === 'gif') ? <img src={media.url} alt="Rendered artwork" /> : <video src={media.url} controls loop autoPlay muted />}
+              <p className="note">Right-click or long-press the {(media.kind === 'png' || media.kind === 'gif') ? 'image' : 'video'} and choose Save. The button below also works when this page runs outside an embedded viewer.</p>
               <div className="row-btns"><a className="btn" href={media.url} download={media.name}>DOWNLOAD FILE</a></div>
             </>)}
           </div>

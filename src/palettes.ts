@@ -1,3 +1,5 @@
+import { MATHMAGICAL_PALETTES } from './mathmagical-palettes';
+
 export interface Palette { name: string; group: string; bg: string; colors: string[]; }
 
 const dark = (hex: string, k = 0.13) =>
@@ -69,6 +71,7 @@ export const PALETTES: Palette[] = [
   { name: 'Blueprint Acid', group: 'Paper', bg: '#001a66', colors: ['#ffffff', '#00e5ff', '#ffe600', '#ff3ea5', '#7dff6b'] },
   { name: 'Mint Kimono', group: 'Paper', bg: '#e9fff5', colors: ['#00b894', '#ff5e78', '#ffc145', '#5f4bff', '#00c2ff'] },
   { name: 'Newsprint Fire', group: 'Paper', bg: '#efe9dd', colors: ['#111111', '#ff2a00', '#ffb000', '#111111', '#0044ff'] },
+  ...MATHMAGICAL_PALETTES,
 ];
 
 export const PALETTE_BY_NAME: Record<string, Palette> = Object.fromEntries(PALETTES.map((p) => [p.name, p]));

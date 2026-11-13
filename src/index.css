@@ -173,3 +173,77 @@ input[type='range']::-moz-range-thumb { width: 9px; height: 16px; border-radius:
   .led, .btn.rec { animation: none; }
   .btn, .chip i::after { transition: none; }
 }
+
+
+/* MathMAGICAL studio shell: compact tabs, a genuinely hideable rack, nested controls. */
+.bar { align-items: center; gap: 8px; }
+.brand { max-width: min(52vw, 390px); border-radius: 10px; padding: 7px 10px; }
+.brand h1 { font-size: 13px; }
+.brand p { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actions { align-items: center; gap: 5px; }
+.actions .btn { border-radius: 8px; padding: 8px 9px; box-shadow: none; }
+.side {
+  width: min(420px, calc(100% - 8px));
+  max-height: min(78vh, 740px);
+  height: min(78vh, 740px);
+  overflow: hidden;
+  border-radius: 14px;
+  box-shadow: 0 12px 34px rgba(0,0,0,.65), 3px 3px 0 var(--pk);
+}
+.side-scroll { scrollbar-gutter: stable; }
+.workspace-tabs {
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 3px; padding: 7px; border-bottom: 1px solid var(--line);
+  background: rgba(5, 1, 15, .97); flex: 0 0 auto;
+}
+.workspace-tabs button {
+  min-width: 0; border: 1px solid var(--line); border-radius: 7px;
+  background: #10091d; color: var(--dim); padding: 11px 2px;
+  font-size: 9px; letter-spacing: .015em; font-weight: 800;
+}
+.workspace-tabs button.active { color: #07030d; background: var(--cy); border-color: var(--yl); }
+.workspace-tabs button:focus-visible { outline-offset: 0; }
+.sec > summary { position: static; font-size: 11px; padding: 12px; }
+.sec > summary small { font-size: 9px; }
+.sec-body { gap: 9px; }
+.family { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.family summary { list-style: none; padding: 9px 10px; font-weight: 800; color: var(--cy); cursor: pointer; font-size: 10px; text-transform: uppercase; }
+.family summary::-webkit-details-marker { display: none; }
+.family summary::before { content: '+ '; color: var(--pk); }
+.family[open] summary::before { content: '− '; }
+.family .engine-grid { padding: 0 7px 8px; }
+.mini-sec { border: 1px solid var(--line); border-radius: 7px; padding: 8px; display: block; }
+.mini-sec summary { list-style: none; font-size: 10px; font-weight: 800; color: var(--yl); text-transform: uppercase; cursor: pointer; padding: 4px 0; }
+.mini-sec summary::-webkit-details-marker { display: none; }
+.mini-sec summary::before { content: '▸ '; color: var(--cy); }
+.mini-sec[open] summary::before { content: '▾ '; }
+.mini-sec > .slider, .mini-sec > .fx, .mini-sec > .row-btns, .mini-sec > .saved, .mini-sec > .note, .mini-sec > .select { margin-top: 10px; }
+.fx-detail { padding-left: 10px; }
+.fx-detail summary { font-size: 9px; color: var(--cy); cursor: pointer; margin: 4px 0 9px; text-transform: uppercase; }
+.fx-detail > .slider { margin: 7px 0; }
+.pal-tools { display: grid; gap: 7px; }
+.pal-tools .select select { max-width: 200px; }
+.pal-tools input[type='search'] {
+  width: 100%; border: 1px solid var(--line); background: var(--well);
+  color: var(--fg); border-radius: 6px; padding: 9px; font-size: 11px;
+}
+.pal-grid { max-height: 195px; }
+.effect-actions { padding: 8px 12px; }
+.export-progress { width: 100%; height: 12px; accent-color: var(--pk); }
+.side-foot { padding: 9px 12px; }
+.modal { border-radius: 12px; }
+.btn.rec, .mini.rec { background: #ff1a1a; color: white; border-color: white; }
+@media (max-width: 740px) {
+  .app { padding: calc(6px + env(safe-area-inset-top, 0px)) 8px calc(8px + env(safe-area-inset-bottom, 0px)); gap: 6px; }
+  .bar { flex-wrap: nowrap; align-items: flex-start; }
+  .brand { max-width: 115px; min-width: 94px; padding: 7px; }
+  .brand h1 { font-size: 10px; letter-spacing: .035em; }
+  .brand .led { height: 8px; width: 8px; }
+  .actions { flex: 1; justify-content: flex-end; flex-wrap: wrap; gap: 4px; }
+  .actions .btn { padding: 8px 6px; font-size: 9px; box-shadow: none; }
+  .side { width: 100%; align-self: end; height: min(56svh, 620px); max-height: min(56svh, 620px); }
+  .workspace-tabs { gap: 2px; padding: 5px; }
+  .workspace-tabs button { font-size: 8px; padding: 11px 1px; }
+  .side-foot { font-size: 9px; padding: 7px; }
+  .panel { box-shadow: 0 10px 26px rgba(0,0,0,.6); }
+}
