@@ -355,7 +355,11 @@ export default function App() {
       const blob = await r.snapshot(s, clock.current.t, clock.current.wall, [mouse.current.x, mouse.current.y], w || r.canvas.width, h || r.canvas.height);
       showMedia({ kind: 'png', url: URL.createObjectURL(blob), name: `acid-loom-${s.engineA}-${Date.now()}.png` });
     } catch (e) { say((e as Error).message); }
-    busyRef.current = false; setBusy(false);
+    finally {
+      busyRef.current = false; setBusy(false);
+      const framedCanvas = previewCanvasRef.current as (HTMLCanvasElement & { __resize?: () => void }) | null;
+      framedCanvas?.__resize?.();
+    }
   };
   const exportArtwork = async () => {
     if (exportFormat === 'png') { await snapshot(); return; }
@@ -384,6 +388,8 @@ export default function App() {
       cancelExportRef.current = false;
       const liveCanvas = canvasRef.current as unknown as { __resize?: () => void } | null;
       liveCanvas?.__resize?.();
+      const framedCanvas = previewCanvasRef.current as (HTMLCanvasElement & { __resize?: () => void }) | null;
+      framedCanvas?.__resize?.();
     }
   };
   const cancelExport = () => { cancelExportRef.current = true; say('Stopping after this frame…'); };
