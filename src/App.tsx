@@ -159,6 +159,12 @@ export default function App() {
       return;
     }
     previewRendererRef.current = r;
+    const onLost = (event: Event) => {
+      event.preventDefault();
+      setPreviewFailed(true);
+      say('Framed preview ran out of GPU resources. Full-screen artwork and exports are still available.');
+    };
+    canvas.addEventListener('webglcontextlost', onLost);
     const resize = () => {
       if (busyRef.current) return;
       const dpr = Math.min(window.devicePixelRatio || 1, window.innerWidth <= 740 ? 1.25 : 1.5) * qualityRef.current;
@@ -173,6 +179,7 @@ export default function App() {
     window.addEventListener('resize', resize);
     return () => {
       window.removeEventListener('resize', resize);
+      canvas.removeEventListener('webglcontextlost', onLost);
       (canvas as HTMLCanvasElement & { __resize?: () => void }).__resize = undefined;
       if (previewRendererRef.current === r) previewRendererRef.current = null;
       r.gl.getExtension('WEBGL_lose_context')?.loseContext();
@@ -206,7 +213,7 @@ export default function App() {
     window.addEventListener('resize', resize);
     (canvas as unknown as { __resize: () => void }).__resize = resize;
 
-    let raf = 0, last = performance.now(), frames = 0, fpsT = last, shownErr = '', lastPreview = 0;
+    let raf = 0, last = performance.now(), frames = 0, fpsT = last, shownErr = '', lastPreview = 0, shownPreviewErr = '';
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
       const dt = Math.min((now - last) / 1000, 0.1);
@@ -228,7 +235,12 @@ export default function App() {
       if (framed && now - lastPreview > 42) {
         lastPreview = now;
         if (framed.useScene({ a: st.engineA, b: st.engineB, blend: st.blendMode, fd: st.fdOn })) {
+          shownPreviewErr = '';
           framed.render(st, clock.current.t, clock.current.wall, [m.x, m.y]);
+        } else if (framed.lastError && framed.lastError !== shownPreviewErr) {
+          shownPreviewErr = framed.lastError;
+          setPreviewFailed(true);
+          say('Framed preview could not compile this shader. Background artwork is unaffected.');
         }
       }
       frames++;
