@@ -100,12 +100,17 @@ export default function App() {
   const [recipeText, setRecipeText] = useState('');
   const [media, setMedia] = useState<Media | null>(null);
   const [exportSize, setExportSize] = useState(0);
+  const [showExportFrame, setShowExportFrame] = useState(true);
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<Saved[]>(loadSaved);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<Renderer | null>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const previewRendererRef = useRef<Renderer | null>(null);
   const sRef = useRef(s); sRef.current = s;
   const pausedRef = useRef(paused); pausedRef.current = paused;
   const qualityRef = useRef(quality); qualityRef.current = quality;
@@ -123,6 +128,61 @@ export default function App() {
   }, []);
 
   const set = useCallback((p: Partial<State>) => setS((prev) => ({ ...prev, ...p })), []);
+
+  // The matte never changes the full-screen background. The framed canvas gets
+  // its own aspect-correct render, so its composition matches the chosen export.
+  const [, selectedWidth, selectedHeight] = EXPORT_SIZES[exportSize];
+  const frameEnabled = showExportFrame && exportSize !== 0 && !previewFailed;
+  const frameRatio = selectedWidth && selectedHeight ? selectedWidth / selectedHeight : 1;
+  const frameWidth = Math.max(1, Math.min(viewport.width - 24, (viewport.height - 24) * frameRatio));
+  const frameHeight = frameWidth / frameRatio;
+
+  useEffect(() => {
+    const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
+
+  // A small secondary renderer runs only when the framing guide is enabled.
+  // Preview resolution is capped to spare mobile GPUs; export itself remains
+  // full-resolution on the same aspect-correct renderer.
+  useEffect(() => {
+    if (!frameEnabled) return;
+    const canvas = previewCanvasRef.current;
+    if (!canvas) return;
+    let r: Renderer;
+    try {
+      r = new Renderer(canvas);
+    } catch {
+      setPreviewFailed(true);
+      say('This device cannot open a second WebGL preview. Try again with the frame toggle.');
+      return;
+    }
+    previewRendererRef.current = r;
+    const resize = () => {
+      if (busyRef.current) return;
+      const dpr = Math.min(window.devicePixelRatio || 1, window.innerWidth <= 740 ? 1.25 : 1.5) * qualityRef.current;
+      const w = Math.max(2, canvas.clientWidth * dpr);
+      const h = Math.max(2, canvas.clientHeight * dpr);
+      const cap = window.innerWidth <= 740 ? 1000 : 1600;
+      const scale = Math.min(1, cap / Math.max(w, h));
+      r.setSize(w * scale, h * scale);
+    };
+    (canvas as HTMLCanvasElement & { __resize?: () => void }).__resize = resize;
+    resize();
+    window.addEventListener('resize', resize);
+    return () => {
+      window.removeEventListener('resize', resize);
+      (canvas as HTMLCanvasElement & { __resize?: () => void }).__resize = undefined;
+      if (previewRendererRef.current === r) previewRendererRef.current = null;
+      r.gl.getExtension('WEBGL_lose_context')?.loseContext();
+    };
+  }, [frameEnabled, say]);
+
+  useEffect(() => {
+    const canvas = previewCanvasRef.current as (HTMLCanvasElement & { __resize?: () => void }) | null;
+    canvas?.__resize?.();
+  }, [frameWidth, frameHeight, quality]);
 
   /* ---------- renderer lifecycle ---------- */
   useEffect(() => {
@@ -146,7 +206,7 @@ export default function App() {
     window.addEventListener('resize', resize);
     (canvas as unknown as { __resize: () => void }).__resize = resize;
 
-    let raf = 0, last = performance.now(), frames = 0, fpsT = last, shownErr = '';
+    let raf = 0, last = performance.now(), frames = 0, fpsT = last, shownErr = '', lastPreview = 0;
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
       const dt = Math.min((now - last) / 1000, 0.1);
@@ -161,6 +221,16 @@ export default function App() {
       if (!ok && r.lastError !== shownErr) { shownErr = r.lastError; setError('Shader failed to compile — ' + r.lastError); }
       if (ok && shownErr) { shownErr = ''; setError(''); }
       r.render(st, clock.current.t, clock.current.wall, [m.x, m.y]);
+
+      // Preview shares the exact art state/time but uses the export aspect,
+      // instead of pretending a crop of the full-screen shader is equivalent.
+      const framed = previewRendererRef.current;
+      if (framed && now - lastPreview > 42) {
+        lastPreview = now;
+        if (framed.useScene({ a: st.engineA, b: st.engineB, blend: st.blendMode, fd: st.fdOn })) {
+          framed.render(st, clock.current.t, clock.current.wall, [m.x, m.y]);
+        }
+      }
       frames++;
       if (now - fpsT > 1000) { setFps(Math.round((frames * 1000) / (now - fpsT))); frames = 0; fpsT = now; }
     };
@@ -182,9 +252,13 @@ export default function App() {
     const pts = new Map<number, [number, number]>();
     let pinch = 0;
     const pole = (x: number, y: number) => {
-      const b = c.getBoundingClientRect();
-      mouse.current.tx = ((x - b.left) / b.width) * 2 - 1;
-      mouse.current.ty = 1 - ((y - b.top) / b.height) * 2;
+      // A drag inside the framed composition should use its coordinates,
+      // not the much wider full-screen background coordinates.
+      const frame = previewCanvasRef.current?.getBoundingClientRect();
+      const inside = frame && x >= frame.left && x <= frame.right && y >= frame.top && y <= frame.bottom;
+      const b = inside ? frame : c.getBoundingClientRect();
+      mouse.current.tx = Math.max(-1, Math.min(1, ((x - b.left) / b.width) * 2 - 1));
+      mouse.current.ty = Math.max(-1, Math.min(1, 1 - ((y - b.top) / b.height) * 2));
     };
     const zoomBy = (f: number) => setS((p) => ({ ...p, zoom: Math.min(PARAMS.zoom.max, Math.max(PARAMS.zoom.min, +(p.zoom * f).toFixed(3))) }));
     const down = (e: PointerEvent) => {
@@ -261,7 +335,7 @@ export default function App() {
     setDialog('media');
   };
   const snapshot = async () => {
-    const r = rendererRef.current;
+    const r = (frameEnabled && previewRendererRef.current) || rendererRef.current;
     if (!r || busyRef.current) return;
     busyRef.current = true; setBusy(true);
     try {
@@ -273,7 +347,7 @@ export default function App() {
   };
   const exportArtwork = async () => {
     if (exportFormat === 'png') { await snapshot(); return; }
-    const r = rendererRef.current;
+    const r = (frameEnabled && previewRendererRef.current) || rendererRef.current;
     if (!r || busyRef.current) return;
     const [, requestedWidth, requestedHeight] = EXPORT_SIZES[exportSize];
     const width = requestedWidth || r.canvas.width, height = requestedHeight || r.canvas.height;
@@ -383,6 +457,17 @@ export default function App() {
   return (
     <div className={'app' + (hud ? '' : ' hud-off')}>
       <canvas ref={canvasRef} id="stage" aria-label="Live generative artwork. Drag to move the warp pole, scroll to zoom." />
+
+      {frameEnabled && (
+        <div className="preview-overlay" aria-hidden="true">
+          <div className="preview-frame" style={{ width: frameWidth, height: frameHeight }}>
+            <canvas ref={previewCanvasRef} className="preview-stage" />
+            <span className="preview-caption">
+              {selectedWidth === selectedHeight ? 'SQUARE' : 'EXPORT FRAME'} · {selectedWidth} × {selectedHeight}
+            </span>
+          </div>
+        </div>
+      )}
 
       <header className="bar">
         <div className="brand panel">
@@ -582,10 +667,16 @@ export default function App() {
               </select>
             </label>
             <label className="select" htmlFor="export-size"><span>Output dimensions</span>
-              <select id="export-size" value={exportSize} onChange={(e) => setExportSize(+e.target.value)}>
+              <select id="export-size" value={exportSize} disabled={busy} onChange={(e) => { setPreviewFailed(false); setExportSize(+e.target.value); }}>
                 {EXPORT_SIZES.map(([n], i) => <option key={n} value={i}>{n}</option>)}
               </select>
             </label>
+            <label className="frame-toggle">
+              <input type="checkbox" checked={showExportFrame} disabled={busy}
+                onChange={(e) => { setPreviewFailed(false); setShowExportFrame(e.target.checked); }} />
+              <span>Show export frame / dim outside</span>
+            </label>
+            <p className="note">Framed preview shows the selected output shape. The full-screen artwork keeps moving behind the matte. The frame and label are not exported.</p>
             <label className="select" htmlFor="export-format"><span>Format</span>
               <select id="export-format" value={exportFormat} onChange={(e) => {
                 const format = e.target.value as 'png' | 'gif' | 'mp4';
