@@ -62,6 +62,18 @@ resampled to eight for rendering—source colors are retained for future full-ra
 - **MP4**: H.264 encoding via Mediabunny/WebCodecs when supported,
   12/24/30/60 fps, 2–30 s, configurable bitrate 12–60 Mbps.
 - Square, portrait, landscape, 3:4 and 4:3 dimensions available.
+- **Live export framing:** selecting a fixed output size displays a centered,
+  aspect-correct WebGL preview, with a dimmed matte outside and the original
+  full-screen animation still moving behind it. The frame is on by default
+  for fixed sizes and can be hidden with **Show export frame** in EXPORT.
+  Screen-size output has no matte. The frame and label never enter the file.
+  The PNG/GIF/MP4 exporters use the aspect-correct renderer when the preview is
+  active, rather than cropping the original viewport at the wrong aspect ratio.
+- The framed preview is capped and runs at roughly 24 fps to protect iPhone
+  GPU performance; output still uses the full requested resolution and FPS.
+  Browser/device limits may prevent a second WebGL context from opening; if so
+  the guide disables itself and the original artwork/export remain available.
+  The advanced legacy **LIVE REC** still captures the full-screen canvas.
 - During animation export the renderer temporarily uses the chosen output
   dimensions and steps shader time at fixed intervals, independent of
   live preview frame rate. Cancel is supported between frames.
